@@ -1,101 +1,64 @@
 // YOUR CODE HERE:
 var app = {};
-app.server ='https://api.parse.com/1/classes/chatterbox';
-app.init = function(){
-  this.friends = {};
-  this.rooms = {};
-  this.selectedRoom = undefined;
-  $(document).ready(function(){
-    $('#send').bind('submit', function(e){
-      app.handleSubmit();
-      return false;
-    });
-    $('#roomSelect').on('change', function(){
-      app.selectedRoom = this.value;
-      app.fetch();
-    });
-  });
-  setInterval(this.fetch.bind(app), 1000);
-};
-app.handleSubmit = function(){
-  var message = {};
-  message.username = window.location.search.split('?username=')[1];
-  message.text = $('#message').val();
-  message.roomname = 'default';
-  app.send(message);
-  $('#message').val('');
-};
-app.send = function(message){
-  $.ajax({
-    url: app.server,
-    type: 'POST',
-    data: JSON.stringify(message),
-    contentType: 'application/json',
-    success: function (data) {
-      console.log('chatterbox: Message sent');
-    },
-    error: function (data) {
-      console.error('chatterbox: Failed to send message');
-    }
-  });
-};
-app.fetch = function(){
-  var roomname = this.selectedRoom;
-  if(roomname !== undefined){
-    roomname = '&where={"roomname":"'+roomname+'"}';
-  } else {
-    roomname = '';
-  }
-  $.ajax({
-    url: this.server,
-    type: 'GET',
-    data: 'order=-createdAt'+roomname,
-    contentType: 'application/json',
-    success: function (data) {
-      app.clearMessages();
-      _.each(data.results, function(message){
-        app.addMessage(message);
-      });
-      var dataLength = (data.results.length > 49) ? 50 : data.results.length;
-      for (var i=0; i < dataLength; i++){
-        var roomName = data.results[i].roomname;
-        if(!app.rooms.hasOwnProperty(roomName)){
-          app.rooms[roomName] = true;
-          app.addRoom(roomName);
-        }
-      }
-    },
-    error: function (data) {
-      console.error('chatterbox: Failed to receive messages');
-    }
-  });
-};
-app.clearMessages = function(){
-  $('#chats').html('');
-};
-app.addMessage = function(message){
-  var div = $('<div>');
-  var classUser = 'username';
-  if ( this.friends.hasOwnProperty(message.username) ){
-    classUser += ' friend';
-  }
-  var $userName = $("<a class='"+classUser+"'>").text(message.username);
-  var textMessage = ' : ' + message.text;
-  var $message = $('<span>').text(textMessage);
-  div.append($userName);
-  div.append($message);
-  $('#chats').append(div);
 
-  $userName.click(function(){
-    console.log('you just added ' + $(this).text() + ' as a friend');
-    app.addFriend($(this).text());
-  });
-};
-app.addRoom = function(roomname){
-  var option = $('<option>');
-  option.text(roomname);
-  $('#roomSelect').append(option);
-};
-app.addFriend = function(newFriend){
-  this.friends[newFriend] = newFriend;
-};
+var Message = Backbone.Model.extend({
+   idAttribute: 'objectId'
+ });
+
+var Room = Backbone.Collection.extend({
+  url: 'https://api.parse.com/1/classes/chatterbox',
+  model: Message,
+  parse: function(response){
+    return response.results;
+  },
+  initialize: function() {
+    setInterval(this.fetch.bind(this, {data: {'order':'-createdAt'}} )
+    , 1000);
+  },
+});
+
+var RoomView = Backbone.View.extend({
+  initialize: function(){
+    this.collection.on('add', function(model){
+      var temp = new MessageView({model:model});
+      this.$el.prepend(temp.render().el);
+    },this);
+  }
+});
+
+var MessageView = Backbone.View.extend({
+  render: function(){
+    var message = this.model.attributes;
+    var template = _.template('<span><%= _.escape(username) %></span><span> : <%= _.escape(text) %> </span>');
+    message.text = message.text || '';
+    message.username = message.username || '';
+    this.$el.html(template(message));
+    return this;
+  }
+});
+
+var SubmitView = Backbone.View.extend({
+  model: Message,
+  events: {
+    'submit': 'submit'
+  },
+  submit: function(e) {
+    e.preventDefault();
+    var message = {
+      text: this.$('input[name=message]').val(),
+      username: window.location.search.split('?username=')[1]
+      // roomname prop should be created here.
+    };
+    this.collection.create({
+      text: message.text,
+      username: message.username
+    });
+    $("input[name=message]").val("");
+  }
+});
+
+$(function(){
+  var room = new Room();
+  var roomView = new RoomView({collection: room, el: $('#chats')});
+  var submitView = new SubmitView({collection: room, el:$('#send')});
+});
